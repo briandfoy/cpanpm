@@ -1183,7 +1183,7 @@ sub _download
 
 		$paths{$module} = _get_file( _make_path( $path ) );
 
-		$logger->info( "Downloaded [$arg] to [$paths{$arg}]" );
+		$logger->info( "Downloaded [$arg] to [$paths{$module}]" );
 		}
 
 	return \%paths;
@@ -1191,28 +1191,73 @@ sub _download
 
 sub _make_path { join "/", qw(authors id), $_[0] }
 
-sub _get_file
-	{
+sub _get_file {
 	my $path = shift;
 
-	my $loaded = _safe_load_module("LWP::Simple");
-	croak "You need LWP::Simple to use features that fetch files from CPAN\n"
-		unless $loaded;
+    require CPAN::Client;
+CPAN::FTP;
+
 
 	my $file = substr $path, rindex( $path, '/' ) + 1;
 	my $store_path = catfile( cwd(), $file );
 	$logger->debug( "Store path is $store_path" );
 
-	foreach my $site ( @{ $CPAN::Config->{urllist} } )
-		{
-		my $fetch_path = join "/", $site, $path;
-		$logger->debug( "Trying $fetch_path" );
-		my $status_code = LWP::Simple::getstore( $fetch_path, $store_path );
-		last if( 200 <= $status_code and $status_code <= 300 );
-		$logger->warn( "Could not get [$fetch_path]: Status code $status_code" );
-		}
+	my %attributes = (
+		);
+
+    foreach my $site ( @{ $CPAN::Config->{urllist} } ) {
+        my $fetch_path = join "/", $site, $path;
+        $logger->debug( "Trying to mirror [$fetch_path] to [$store_path]" );
+        my $response = _mirror( $fetch_path, $store_path );
+        my $response =
+        last if $response->{success};
+        my $status_code = $response->{status};
+        $logger->warn( "Could not get [$fetch_path]: Status code $status_code" );
+        }
 
 	return $store_path;
+	}
+
+=pod
+
+{
+  "content" => "Unsupported URL scheme 'file'\n",
+  "headers" => {
+    "content-length" => 30,
+    "content-type" => "text/plain"
+  },
+  "reason" => "Internal Exception",
+  "status" => 599,
+  "success" => "",
+  "url" => "file:///Users/brian/.MINICPAN/authors/id/B/BD/BDFOY/Tie-Toggle-1.084.tar.gz"
+}
+
+=cut
+
+sub _mirror {
+	my( $src, $dest ) = @_;
+
+	if( $src =~ m/\Ahttp/i ) {
+		my %attributes = ();
+		CPAN::HTTP::Client->new(%attributes)->mirror( $src, $dest );
+		}
+	elsif( $src =~ m/\Aftp:/i ) {
+		my( $host, $dir, $file ) = $src =~ m|\Aftp://(.+?)/(.+)/(.+)|i;
+		$logger->debug( "Fetching FTP link from host [$host], dir [$dir], file [$file]" );
+		my $rc = CPAN::FTP->ftp_get( $host, $dir, $file, $dest );
+		my $result = {
+			success => $rc,
+			url     => $src,
+			};
+		}
+	elsif( $src =~ m/\Afile:/i ) {
+		my $file =~ m|\Afile://(.+)|i;
+		my $result = {
+			success => $rc,
+			url     => $src,
+			};
+
+		}
 	}
 
 sub _gitify
